@@ -1,0 +1,837 @@
+USE master;
+GO
+IF DB_ID(N'PlanillaObreraDB') IS NOT NULL
+BEGIN
+    ALTER DATABASE PlanillaObreraDB SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE PlanillaObreraDB;
+END;
+GO
+CREATE DATABASE PlanillaObreraDB;
+GO
+USE PlanillaObreraDB;
+GO
+SET NOCOUNT ON;
+GO
+
+CREATE TABLE dbo.TipoUsuario (
+    Id INT NOT NULL CONSTRAINT PK_TipoUsuario PRIMARY KEY,
+    Nombre VARCHAR(32) NOT NULL CONSTRAINT UQ_TipoUsuario_Nombre UNIQUE
+);
+GO
+CREATE TABLE dbo.Puesto (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Puesto PRIMARY KEY,
+    Nombre VARCHAR(80) NOT NULL CONSTRAINT UQ_Puesto_Nombre UNIQUE,
+    SalarioXHora DECIMAL(18,2) NOT NULL CONSTRAINT CK_Puesto_Salario CHECK (SalarioXHora > 0)
+);
+GO
+CREATE TABLE dbo.TipoJornada (
+    Id INT NOT NULL CONSTRAINT PK_TipoJornada PRIMARY KEY,
+    Nombre VARCHAR(40) NOT NULL CONSTRAINT UQ_TipoJornada_Nombre UNIQUE,
+    HoraInicio TIME(0) NOT NULL,
+    HoraFin TIME(0) NOT NULL
+);
+GO
+CREATE TABLE dbo.PuestoJornadaSalario (
+    IdPuesto INT NOT NULL CONSTRAINT FK_PuestoJornadaSalario_Puesto REFERENCES dbo.Puesto(Id),
+    IdTipoJornada INT NOT NULL CONSTRAINT FK_PuestoJornadaSalario_TipoJornada REFERENCES dbo.TipoJornada(Id),
+    SalarioXHora DECIMAL(18,2) NOT NULL CONSTRAINT CK_PuestoJornadaSalario_Salario CHECK (SalarioXHora > 0),
+    CONSTRAINT PK_PuestoJornadaSalario PRIMARY KEY (IdPuesto, IdTipoJornada)
+);
+GO
+CREATE TABLE dbo.Feriado (
+    Id INT NOT NULL CONSTRAINT PK_Feriado PRIMARY KEY,
+    Nombre VARCHAR(100) NOT NULL,
+    Fecha DATE NOT NULL CONSTRAINT UQ_Feriado_Fecha UNIQUE
+);
+GO
+CREATE TABLE dbo.TipoMovimiento (
+    Id INT NOT NULL CONSTRAINT PK_TipoMovimiento PRIMARY KEY,
+    Nombre VARCHAR(100) NOT NULL CONSTRAINT UQ_TipoMovimiento_Nombre UNIQUE,
+    Accion CHAR(1) NOT NULL CONSTRAINT CK_TipoMovimiento_Accion CHECK (Accion IN ('+','-'))
+);
+GO
+CREATE TABLE dbo.TipoDeduccion (
+    Id INT NOT NULL CONSTRAINT PK_TipoDeduccion PRIMARY KEY,
+    Nombre VARCHAR(100) NOT NULL CONSTRAINT UQ_TipoDeduccion_Nombre UNIQUE,
+    Obligatorio BIT NOT NULL,
+    Porcentual BIT NOT NULL,
+    Valor DECIMAL(18,4) NOT NULL CONSTRAINT CK_TipoDeduccion_Valor CHECK (Valor >= 0),
+    IdTipoMovimiento INT NOT NULL CONSTRAINT FK_TipoDeduccion_TipoMovimiento REFERENCES dbo.TipoMovimiento(Id)
+);
+GO
+CREATE TABLE dbo.TipoEvento (
+    Id INT NOT NULL CONSTRAINT PK_TipoEvento PRIMARY KEY,
+    Nombre VARCHAR(100) NOT NULL CONSTRAINT UQ_TipoEvento_Nombre UNIQUE
+);
+GO
+CREATE TABLE dbo.ErrorAplicacion (
+    Codigo INT NOT NULL CONSTRAINT PK_ErrorAplicacion PRIMARY KEY,
+    Descripcion VARCHAR(250) NOT NULL
+);
+GO
+CREATE TABLE dbo.Empleado (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Empleado PRIMARY KEY,
+    ValorDocumentoIdentidad VARCHAR(32) NOT NULL CONSTRAINT UQ_Empleado_Documento UNIQUE,
+    Nombre VARCHAR(128) NOT NULL,
+    IdPuesto INT NOT NULL CONSTRAINT FK_Empleado_Puesto REFERENCES dbo.Puesto(Id),
+    CuentaBancaria VARCHAR(40) NOT NULL,
+    FechaContratacion DATE NOT NULL,
+    FechaSalida DATE NULL,
+    Activo BIT NOT NULL CONSTRAINT DF_Empleado_Activo DEFAULT (1),
+    PostTime DATETIME2(0) NOT NULL CONSTRAINT DF_Empleado_PostTime DEFAULT (SYSDATETIME())
+);
+GO
+CREATE INDEX IX_Empleado_Nombre ON dbo.Empleado(Nombre);
+GO
+CREATE TABLE dbo.Usuario (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Usuario PRIMARY KEY,
+    Username VARCHAR(64) NOT NULL CONSTRAINT UQ_Usuario_Username UNIQUE,
+    Password VARCHAR(128) NOT NULL,
+    IdTipoUsuario INT NOT NULL CONSTRAINT FK_Usuario_TipoUsuario REFERENCES dbo.TipoUsuario(Id),
+    IdEmpleado INT NULL CONSTRAINT FK_Usuario_Empleado REFERENCES dbo.Empleado(Id),
+    Activo BIT NOT NULL CONSTRAINT DF_Usuario_Activo DEFAULT (1),
+    PostTime DATETIME2(0) NOT NULL CONSTRAINT DF_Usuario_PostTime DEFAULT (SYSDATETIME())
+);
+GO
+CREATE TABLE dbo.EventLog (
+    Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_EventLog PRIMARY KEY,
+    IdUsuario INT NULL CONSTRAINT FK_EventLog_Usuario REFERENCES dbo.Usuario(Id),
+    PostInIP VARCHAR(64) NOT NULL CONSTRAINT DF_EventLog_IP DEFAULT ('127.0.0.1'),
+    PostTime DATETIME2(0) NOT NULL CONSTRAINT DF_EventLog_PostTime DEFAULT (SYSDATETIME()),
+    IdTipoEvento INT NOT NULL CONSTRAINT FK_EventLog_TipoEvento REFERENCES dbo.TipoEvento(Id),
+    ParametrosJson NVARCHAR(MAX) NULL,
+    AntesJson NVARCHAR(MAX) NULL,
+    DespuesJson NVARCHAR(MAX) NULL,
+    Resultado VARCHAR(30) NOT NULL CONSTRAINT DF_EventLog_Resultado DEFAULT ('OK')
+);
+GO
+CREATE TABLE dbo.MesPlanilla (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_MesPlanilla PRIMARY KEY,
+    FechaInicio DATE NOT NULL,
+    FechaFin DATE NOT NULL,
+    CantidadSemanas INT NOT NULL CONSTRAINT CK_MesPlanilla_Semanas CHECK (CantidadSemanas IN (4,5)),
+    Cerrado BIT NOT NULL CONSTRAINT DF_MesPlanilla_Cerrado DEFAULT (0),
+    CONSTRAINT UQ_MesPlanilla_Fechas UNIQUE (FechaInicio, FechaFin)
+);
+GO
+CREATE TABLE dbo.SemanaPlanilla (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_SemanaPlanilla PRIMARY KEY,
+    IdMesPlanilla INT NOT NULL CONSTRAINT FK_SemanaPlanilla_MesPlanilla REFERENCES dbo.MesPlanilla(Id),
+    FechaInicio DATE NOT NULL,
+    FechaFin DATE NOT NULL,
+    Cerrada BIT NOT NULL CONSTRAINT DF_SemanaPlanilla_Cerrada DEFAULT (0),
+    CONSTRAINT UQ_SemanaPlanilla_Fechas UNIQUE (FechaInicio, FechaFin)
+);
+GO
+CREATE TABLE dbo.PlanillaMesXEmpleado (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PlanillaMesXEmpleado PRIMARY KEY,
+    IdMesPlanilla INT NOT NULL CONSTRAINT FK_PlanillaMesXEmpleado_MesPlanilla REFERENCES dbo.MesPlanilla(Id),
+    IdEmpleado INT NOT NULL CONSTRAINT FK_PlanillaMesXEmpleado_Empleado REFERENCES dbo.Empleado(Id),
+    SalarioBruto DECIMAL(18,2) NOT NULL CONSTRAINT DF_PME_Bruto DEFAULT (0),
+    TotalDeducciones DECIMAL(18,2) NOT NULL CONSTRAINT DF_PME_Deducciones DEFAULT (0),
+    SalarioNeto AS (SalarioBruto - TotalDeducciones) PERSISTED,
+    CONSTRAINT UQ_PlanillaMesXEmpleado UNIQUE (IdMesPlanilla, IdEmpleado)
+);
+GO
+CREATE TABLE dbo.PlanillaSemXEmpleado (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PlanillaSemXEmpleado PRIMARY KEY,
+    IdSemanaPlanilla INT NOT NULL CONSTRAINT FK_PlanillaSemXEmpleado_SemanaPlanilla REFERENCES dbo.SemanaPlanilla(Id),
+    IdEmpleado INT NOT NULL CONSTRAINT FK_PlanillaSemXEmpleado_Empleado REFERENCES dbo.Empleado(Id),
+    SalarioBruto DECIMAL(18,2) NOT NULL CONSTRAINT DF_PSE_Bruto DEFAULT (0),
+    TotalDeducciones DECIMAL(18,2) NOT NULL CONSTRAINT DF_PSE_Deducciones DEFAULT (0),
+    SalarioNeto AS (SalarioBruto - TotalDeducciones) PERSISTED,
+    HorasOrdinarias INT NOT NULL CONSTRAINT DF_PSE_HOrd DEFAULT (0),
+    HorasExtraNormales INT NOT NULL CONSTRAINT DF_PSE_HExtra DEFAULT (0),
+    HorasExtraDobles INT NOT NULL CONSTRAINT DF_PSE_HDoble DEFAULT (0),
+    Cerrada BIT NOT NULL CONSTRAINT DF_PSE_Cerrada DEFAULT (0),
+    CONSTRAINT UQ_PlanillaSemXEmpleado UNIQUE (IdSemanaPlanilla, IdEmpleado)
+);
+GO
+CREATE TABLE dbo.EmpleadoDeduccion (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_EmpleadoDeduccion PRIMARY KEY,
+    IdEmpleado INT NOT NULL CONSTRAINT FK_EmpleadoDeduccion_Empleado REFERENCES dbo.Empleado(Id),
+    IdTipoDeduccion INT NOT NULL CONSTRAINT FK_EmpleadoDeduccion_TipoDeduccion REFERENCES dbo.TipoDeduccion(Id),
+    Porcentaje DECIMAL(18,4) NULL,
+    MontoFijo DECIMAL(18,2) NULL,
+    FechaInicio DATE NOT NULL,
+    FechaFin DATE NULL,
+    Activo BIT NOT NULL CONSTRAINT DF_EmpleadoDeduccion_Activo DEFAULT (1),
+    CONSTRAINT CK_EmpleadoDeduccion_Valor CHECK (Porcentaje IS NOT NULL OR MontoFijo IS NOT NULL)
+);
+GO
+CREATE INDEX IX_EmpleadoDeduccion_Empleado ON dbo.EmpleadoDeduccion(IdEmpleado, IdTipoDeduccion, Activo);
+GO
+CREATE TABLE dbo.JornadaXEmpleado (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_JornadaXEmpleado PRIMARY KEY,
+    IdEmpleado INT NOT NULL CONSTRAINT FK_JornadaXEmpleado_Empleado REFERENCES dbo.Empleado(Id),
+    IdTipoJornada INT NOT NULL CONSTRAINT FK_JornadaXEmpleado_TipoJornada REFERENCES dbo.TipoJornada(Id),
+    InicioSemana DATE NOT NULL,
+    PostTime DATETIME2(0) NOT NULL CONSTRAINT DF_JornadaXEmpleado_PostTime DEFAULT (SYSDATETIME()),
+    CONSTRAINT UQ_JornadaXEmpleado UNIQUE (IdEmpleado, InicioSemana)
+);
+GO
+CREATE TABLE dbo.Asistencia (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_Asistencia PRIMARY KEY,
+    IdEmpleado INT NOT NULL CONSTRAINT FK_Asistencia_Empleado REFERENCES dbo.Empleado(Id),
+    IdSemanaPlanilla INT NOT NULL CONSTRAINT FK_Asistencia_SemanaPlanilla REFERENCES dbo.SemanaPlanilla(Id),
+    FechaOperacion DATE NOT NULL,
+    HoraEntrada DATETIME2(0) NOT NULL,
+    HoraSalida DATETIME2(0) NOT NULL,
+    PostTime DATETIME2(0) NOT NULL CONSTRAINT DF_Asistencia_PostTime DEFAULT (SYSDATETIME()),
+    CONSTRAINT CK_Asistencia_Horas CHECK (HoraSalida > HoraEntrada)
+);
+GO
+CREATE TABLE dbo.MovimientoPlanilla (
+    Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_MovimientoPlanilla PRIMARY KEY,
+    IdEmpleado INT NOT NULL CONSTRAINT FK_MovimientoPlanilla_Empleado REFERENCES dbo.Empleado(Id),
+    IdSemanaPlanilla INT NOT NULL CONSTRAINT FK_MovimientoPlanilla_SemanaPlanilla REFERENCES dbo.SemanaPlanilla(Id),
+    IdMesPlanilla INT NOT NULL CONSTRAINT FK_MovimientoPlanilla_MesPlanilla REFERENCES dbo.MesPlanilla(Id),
+    IdAsistencia INT NULL CONSTRAINT FK_MovimientoPlanilla_Asistencia REFERENCES dbo.Asistencia(Id),
+    IdTipoMovimiento INT NOT NULL CONSTRAINT FK_MovimientoPlanilla_TipoMovimiento REFERENCES dbo.TipoMovimiento(Id),
+    IdTipoDeduccion INT NULL CONSTRAINT FK_MovimientoPlanilla_TipoDeduccion REFERENCES dbo.TipoDeduccion(Id),
+    FechaMovimiento DATE NOT NULL,
+    CantidadHoras INT NULL,
+    Monto DECIMAL(18,2) NOT NULL,
+    Detalle VARCHAR(250) NULL,
+    PostTime DATETIME2(0) NOT NULL CONSTRAINT DF_MovimientoPlanilla_PostTime DEFAULT (SYSDATETIME())
+);
+GO
+CREATE INDEX IX_MovimientoPlanilla_EmpleadoSemana ON dbo.MovimientoPlanilla(IdEmpleado, IdSemanaPlanilla);
+GO
+CREATE TABLE dbo.DeduccionXEmpleadoXMes (
+    Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DeduccionXEmpleadoXMes PRIMARY KEY,
+    IdMesPlanilla INT NOT NULL CONSTRAINT FK_DEM_MesPlanilla REFERENCES dbo.MesPlanilla(Id),
+    IdEmpleado INT NOT NULL CONSTRAINT FK_DEM_Empleado REFERENCES dbo.Empleado(Id),
+    IdTipoDeduccion INT NOT NULL CONSTRAINT FK_DEM_TipoDeduccion REFERENCES dbo.TipoDeduccion(Id),
+    PorcentajeAplicado DECIMAL(18,4) NULL,
+    Monto DECIMAL(18,2) NOT NULL CONSTRAINT DF_DEM_Monto DEFAULT (0),
+    CONSTRAINT UQ_DeduccionXEmpleadoXMes UNIQUE (IdMesPlanilla, IdEmpleado, IdTipoDeduccion)
+);
+GO
+CREATE TABLE dbo.TransferenciaDeduccionMes (
+    Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_TransferenciaDeduccionMes PRIMARY KEY,
+    IdMesPlanilla INT NOT NULL CONSTRAINT FK_TransferenciaDeduccionMes_MesPlanilla REFERENCES dbo.MesPlanilla(Id),
+    IdTipoDeduccion INT NOT NULL CONSTRAINT FK_TransferenciaDeduccionMes_TipoDeduccion REFERENCES dbo.TipoDeduccion(Id),
+    MontoTotal DECIMAL(18,2) NOT NULL,
+    FechaTransferencia DATE NOT NULL,
+    PostTime DATETIME2(0) NOT NULL CONSTRAINT DF_TransferenciaDeduccionMes_PostTime DEFAULT (SYSDATETIME()),
+    CONSTRAINT UQ_TransferenciaDeduccionMes UNIQUE (IdMesPlanilla, IdTipoDeduccion)
+);
+GO
+
+INSERT dbo.ErrorAplicacion (Codigo, Descripcion) VALUES
+(0, 'Operacion correcta'),
+(50001, 'Usuario no existe.'),
+(50002, 'Password incorrecto.'),
+(50003, 'Usuario deshabilitado.'),
+(50004, 'Empleado con ValorDocumentoIdentidad ya existe.'),
+(50005, 'Empleado con el mismo nombre ya existe.'),
+(50006, 'Puesto no existe.'),
+(50007, 'Empleado no existe.'),
+(50008, 'Error de base de datos.'),
+(50009, 'Tipo de deduccion no existe.'),
+(50010, 'Tipo de jornada no existe.'),
+(50011, 'Semana de planilla no existe.'),
+(50012, 'Tipo de usuario invalido.'),
+(50013, 'Operacion no permitida para el tipo de usuario.');
+GO
+
+CREATE OR ALTER FUNCTION dbo.fn_DiaSemana(@Fecha DATE)
+RETURNS INT
+AS
+BEGIN
+    RETURN ((DATEDIFF(DAY, CONVERT(DATE, '19000101'), @Fecha) % 7 + 7) % 7) + 1;
+END;
+GO
+CREATE OR ALTER FUNCTION dbo.fn_EsDomingo(@Fecha DATE)
+RETURNS BIT
+AS
+BEGIN
+    RETURN CASE WHEN dbo.fn_DiaSemana(@Fecha) = 7 THEN 1 ELSE 0 END;
+END;
+GO
+CREATE OR ALTER FUNCTION dbo.fn_EsJueves(@Fecha DATE)
+RETURNS BIT
+AS
+BEGIN
+    RETURN CASE WHEN dbo.fn_DiaSemana(@Fecha) = 4 THEN 1 ELSE 0 END;
+END;
+GO
+CREATE OR ALTER FUNCTION dbo.fn_ViernesDeSemana(@Fecha DATE)
+RETURNS DATE
+AS
+BEGIN
+    DECLARE @Offset INT = ((DATEDIFF(DAY, CONVERT(DATE, '19000105'), @Fecha) % 7 + 7) % 7);
+    RETURN DATEADD(DAY, -@Offset, @Fecha);
+END;
+GO
+CREATE OR ALTER FUNCTION dbo.fn_SiguienteViernes(@Fecha DATE)
+RETURNS DATE
+AS
+BEGIN
+    DECLARE @Offset INT = ((DATEDIFF(DAY, CONVERT(DATE, '19000105'), @Fecha) % 7 + 7) % 7);
+    DECLARE @Dias INT = CASE WHEN @Offset = 0 THEN 0 ELSE 7 - @Offset END;
+    RETURN DATEADD(DAY, @Dias, @Fecha);
+END;
+GO
+CREATE OR ALTER FUNCTION dbo.fn_UltimoJuevesDelMes(@Fecha DATE)
+RETURNS DATE
+AS
+BEGIN
+    DECLARE @Ultimo DATE = EOMONTH(@Fecha);
+    WHILE dbo.fn_EsJueves(@Ultimo) = 0
+        SET @Ultimo = DATEADD(DAY, -1, @Ultimo);
+    RETURN @Ultimo;
+END;
+GO
+CREATE OR ALTER FUNCTION dbo.fn_EsFeriado(@Fecha DATE)
+RETURNS BIT
+AS
+BEGIN
+    RETURN CASE WHEN EXISTS (SELECT 1 FROM dbo.Feriado WHERE Fecha = @Fecha) THEN 1 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ObtenerError
+    @inCodigo INT,
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT Codigo, Descripcion FROM dbo.ErrorAplicacion WHERE Codigo = @inCodigo;
+    SET @outResultCode = 0;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_RegistrarEvento
+    @inIdUsuario INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @inNombreEvento VARCHAR(100),
+    @inParametrosJson NVARCHAR(MAX) = NULL,
+    @inAntesJson NVARCHAR(MAX) = NULL,
+    @inDespuesJson NVARCHAR(MAX) = NULL,
+    @inResultado VARCHAR(30) = 'OK'
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @IdTipoEvento INT;
+    SELECT @IdTipoEvento = Id FROM dbo.TipoEvento WHERE Nombre = @inNombreEvento;
+    IF @IdTipoEvento IS NULL
+        RETURN;
+    INSERT dbo.EventLog (IdUsuario, PostInIP, IdTipoEvento, ParametrosJson, AntesJson, DespuesJson, Resultado)
+    VALUES (@inIdUsuario, ISNULL(@inPostInIP, '127.0.0.1'), @IdTipoEvento, @inParametrosJson, @inAntesJson, @inDespuesJson, @inResultado);
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_CargarCatalogos
+    @inXml XML,
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        MERGE dbo.TipoUsuario AS T
+        USING (SELECT N.value('@Id','INT') Id, N.value('@Nombre','VARCHAR(32)') Nombre FROM @inXml.nodes('/Catalogo/TiposUsuario/TipoUsuario') X(N)) AS S
+        ON T.Id = S.Id
+        WHEN MATCHED THEN UPDATE SET Nombre = S.Nombre
+        WHEN NOT MATCHED THEN INSERT (Id, Nombre) VALUES (S.Id, S.Nombre);
+
+        MERGE dbo.TipoJornada AS T
+        USING (SELECT N.value('@Id','INT') Id, N.value('@Nombre','VARCHAR(40)') Nombre, N.value('@HoraInicio','TIME(0)') HoraInicio, N.value('@HoraFin','TIME(0)') HoraFin FROM @inXml.nodes('/Catalogo/TiposDeJornada/TipoDeJornada') X(N)) AS S
+        ON T.Id = S.Id
+        WHEN MATCHED THEN UPDATE SET Nombre = S.Nombre, HoraInicio = S.HoraInicio, HoraFin = S.HoraFin
+        WHEN NOT MATCHED THEN INSERT (Id, Nombre, HoraInicio, HoraFin) VALUES (S.Id, S.Nombre, S.HoraInicio, S.HoraFin);
+
+        MERGE dbo.Puesto AS T
+        USING (SELECT N.value('@Nombre','VARCHAR(80)') Nombre, N.value('@SalarioXHora','DECIMAL(18,2)') SalarioXHora FROM @inXml.nodes('/Catalogo/Puestos/Puesto') X(N)) AS S
+        ON T.Nombre = S.Nombre
+        WHEN MATCHED THEN UPDATE SET SalarioXHora = S.SalarioXHora
+        WHEN NOT MATCHED THEN INSERT (Nombre, SalarioXHora) VALUES (S.Nombre, S.SalarioXHora);
+
+        ;WITH SalarioPorJornada AS (
+            SELECT P.Id AS IdPuesto,
+                   TJ.Id AS IdTipoJornada,
+                   CASE
+                       WHEN TJ.Nombre = 'Diurno' AND N.exist('@SalarioDiurno') = 1 THEN N.value('@SalarioDiurno[1]','DECIMAL(18,2)')
+                       WHEN TJ.Nombre = 'Vespertino' AND N.exist('@SalarioVespertino') = 1 THEN N.value('@SalarioVespertino[1]','DECIMAL(18,2)')
+                       WHEN TJ.Nombre = 'Nocturno' AND N.exist('@SalarioNocturno') = 1 THEN N.value('@SalarioNocturno[1]','DECIMAL(18,2)')
+                       ELSE N.value('@SalarioXHora[1]','DECIMAL(18,2)')
+                   END AS SalarioXHora
+            FROM @inXml.nodes('/Catalogo/Puestos/Puesto') X(N)
+            INNER JOIN dbo.Puesto P ON P.Nombre = N.value('@Nombre[1]','VARCHAR(80)')
+            CROSS JOIN dbo.TipoJornada TJ
+        )
+        MERGE dbo.PuestoJornadaSalario AS T
+        USING SalarioPorJornada AS S
+        ON T.IdPuesto = S.IdPuesto AND T.IdTipoJornada = S.IdTipoJornada
+        WHEN MATCHED THEN UPDATE SET SalarioXHora = S.SalarioXHora
+        WHEN NOT MATCHED THEN INSERT (IdPuesto, IdTipoJornada, SalarioXHora) VALUES (S.IdPuesto, S.IdTipoJornada, S.SalarioXHora);
+
+        MERGE dbo.Feriado AS T
+        USING (SELECT N.value('@Id','INT') Id, N.value('@Nombre','VARCHAR(100)') Nombre, N.value('@Fecha','DATE') Fecha FROM @inXml.nodes('/Catalogo/Feriados/Feriado') X(N)) AS S
+        ON T.Id = S.Id
+        WHEN MATCHED THEN UPDATE SET Nombre = S.Nombre, Fecha = S.Fecha
+        WHEN NOT MATCHED THEN INSERT (Id, Nombre, Fecha) VALUES (S.Id, S.Nombre, S.Fecha);
+
+        MERGE dbo.TipoMovimiento AS T
+        USING (SELECT N.value('@Id','INT') Id, N.value('@Nombre','VARCHAR(100)') Nombre, N.value('@Accion','CHAR(1)') Accion FROM @inXml.nodes('/Catalogo/TiposDeMovimiento/TipoDeMovimiento') X(N)) AS S
+        ON T.Id = S.Id
+        WHEN MATCHED THEN UPDATE SET Nombre = S.Nombre, Accion = S.Accion
+        WHEN NOT MATCHED THEN INSERT (Id, Nombre, Accion) VALUES (S.Id, S.Nombre, S.Accion);
+
+        MERGE dbo.TipoDeduccion AS T
+        USING (
+            SELECT N.value('@Id','INT') Id,
+                   N.value('@Nombre','VARCHAR(100)') Nombre,
+                   CASE WHEN LOWER(N.value('@Obligatorio','VARCHAR(10)')) IN ('si','sí','1','true') THEN CONVERT(BIT,1) ELSE CONVERT(BIT,0) END Obligatorio,
+                   CASE WHEN LOWER(N.value('@Porcentual','VARCHAR(10)')) IN ('si','sí','1','true') THEN CONVERT(BIT,1) ELSE CONVERT(BIT,0) END Porcentual,
+                   N.value('@Valor','DECIMAL(18,4)') Valor,
+                   N.value('@IdTipoMov','INT') IdTipoMovimiento
+            FROM @inXml.nodes('/Catalogo/TiposDeDeduccion/TipoDeDeduccion') X(N)
+        ) AS S
+        ON T.Id = S.Id
+        WHEN MATCHED THEN UPDATE SET Nombre = S.Nombre, Obligatorio = S.Obligatorio, Porcentual = S.Porcentual, Valor = S.Valor, IdTipoMovimiento = S.IdTipoMovimiento
+        WHEN NOT MATCHED THEN INSERT (Id, Nombre, Obligatorio, Porcentual, Valor, IdTipoMovimiento) VALUES (S.Id, S.Nombre, S.Obligatorio, S.Porcentual, S.Valor, S.IdTipoMovimiento);
+
+        MERGE dbo.TipoEvento AS T
+        USING (SELECT N.value('@Id','INT') Id, N.value('@Nombre','VARCHAR(100)') Nombre FROM @inXml.nodes('/Catalogo/TiposDeEvento/TipoEvento') X(N)) AS S
+        ON T.Id = S.Id
+        WHEN MATCHED THEN UPDATE SET Nombre = S.Nombre
+        WHEN NOT MATCHED THEN INSERT (Id, Nombre) VALUES (S.Id, S.Nombre);
+
+        MERGE dbo.Usuario AS T
+        USING (SELECT N.value('@Username','VARCHAR(64)') Username, N.value('@Password','VARCHAR(128)') Password, N.value('@TipoUsuario','INT') IdTipoUsuario FROM @inXml.nodes('/Catalogo/Usuarios/Usuario') X(N)) AS S
+        ON T.Username = S.Username
+        WHEN MATCHED THEN UPDATE SET Password = S.Password, IdTipoUsuario = S.IdTipoUsuario, Activo = 1
+        WHEN NOT MATCHED THEN INSERT (Username, Password, IdTipoUsuario, IdEmpleado, Activo) VALUES (S.Username, S.Password, S.IdTipoUsuario, NULL, 1);
+
+        COMMIT TRANSACTION;
+        SET @outResultCode = 0;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        SET @outResultCode = 50008;
+        THROW;
+    END CATCH
+END;
+GO
+
+CREATE OR ALTER TRIGGER dbo.trg_Empleado_AsociaDeduccionesObligatorias
+ON dbo.Empleado
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    INSERT dbo.EmpleadoDeduccion (IdEmpleado, IdTipoDeduccion, Porcentaje, MontoFijo, FechaInicio, FechaFin, Activo)
+    SELECT I.Id,
+           TD.Id,
+           CASE WHEN TD.Porcentual = 1 THEN TD.Valor ELSE NULL END,
+           CASE WHEN TD.Porcentual = 0 THEN TD.Valor ELSE NULL END,
+           I.FechaContratacion,
+           NULL,
+           1
+    FROM inserted I
+    CROSS JOIN dbo.TipoDeduccion TD
+    WHERE TD.Obligatorio = 1
+      AND NOT EXISTS (
+          SELECT 1 FROM dbo.EmpleadoDeduccion ED
+          WHERE ED.IdEmpleado = I.Id AND ED.IdTipoDeduccion = TD.Id AND ED.Activo = 1
+      );
+
+    INSERT dbo.EventLog (IdUsuario, PostInIP, IdTipoEvento, ParametrosJson, Resultado)
+    SELECT NULL,
+           'TRIGGER',
+           TE.Id,
+           CONCAT('{"EmpleadoId":', I.Id, ',"Tipo":"Deduccion obligatoria"}'),
+           'OK'
+    FROM inserted I
+    CROSS JOIN dbo.TipoEvento TE
+    WHERE TE.Nombre = 'Asociar deduccion';
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_LoginUsuario
+    @inUsername VARCHAR(64),
+    @inPassword VARCHAR(128),
+    @inPostInIP VARCHAR(64),
+    @outIdUsuario INT OUTPUT,
+    @outIdEmpleado INT OUTPUT,
+    @outTipoUsuario VARCHAR(32) OUTPUT,
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogJson NVARCHAR(MAX);
+    SET @outIdUsuario = NULL;
+    SET @outIdEmpleado = NULL;
+    SET @outTipoUsuario = NULL;
+
+    SELECT @outIdUsuario = U.Id, @outIdEmpleado = U.IdEmpleado, @outTipoUsuario = TU.Nombre
+    FROM dbo.Usuario U
+    INNER JOIN dbo.TipoUsuario TU ON TU.Id = U.IdTipoUsuario
+    WHERE U.Username = @inUsername;
+
+    IF @outIdUsuario IS NULL
+    BEGIN
+        SET @outResultCode = 50001;
+        SET @LogJson = CONCAT('{"Username":"', @inUsername, '","Resultado":"No exitoso"}');
+        EXEC dbo.sp_RegistrarEvento NULL, @inPostInIP, 'Login', @LogJson, NULL, NULL, 'ERROR';
+        RETURN;
+    END;
+    IF EXISTS (SELECT 1 FROM dbo.Usuario WHERE Id = @outIdUsuario AND Activo = 0)
+    BEGIN
+        SET @outResultCode = 50003;
+        SET @LogJson = CONCAT('{"Username":"', @inUsername, '","Resultado":"Usuario deshabilitado"}');
+        EXEC dbo.sp_RegistrarEvento @outIdUsuario, @inPostInIP, 'Login', @LogJson, NULL, NULL, 'ERROR';
+        RETURN;
+    END;
+    IF NOT EXISTS (SELECT 1 FROM dbo.Usuario WHERE Id = @outIdUsuario AND Password = @inPassword)
+    BEGIN
+        SET @outResultCode = 50002;
+        SET @LogJson = CONCAT('{"Username":"', @inUsername, '","Resultado":"No exitoso"}');
+        EXEC dbo.sp_RegistrarEvento @outIdUsuario, @inPostInIP, 'Login', @LogJson, NULL, NULL, 'ERROR';
+        RETURN;
+    END;
+
+    SET @outResultCode = 0;
+    SET @LogJson = CONCAT('{"Username":"', @inUsername, '","Resultado":"Exitoso"}');
+    EXEC dbo.sp_RegistrarEvento @outIdUsuario, @inPostInIP, 'Login', @LogJson, NULL, NULL, 'OK';
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_LogoutUsuario
+    @inIdUsuario INT,
+    @inPostInIP VARCHAR(64),
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    EXEC dbo.sp_RegistrarEvento @inIdUsuario, @inPostInIP, 'Logout', NULL, NULL, NULL, 'OK';
+    SET @outResultCode = 0;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_AbrirMesSiNoExistePorSemana
+    @inFechaInicioSemana DATE,
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        DECLARE @FechaFinSemana DATE = DATEADD(DAY, 6, @inFechaInicioSemana);
+        DECLARE @FechaFinMes DATE = dbo.fn_UltimoJuevesDelMes(@FechaFinSemana);
+        DECLARE @FechaFinMesAnterior DATE = dbo.fn_UltimoJuevesDelMes(DATEADD(MONTH, -1, @FechaFinMes));
+        DECLARE @FechaInicioMes DATE = DATEADD(DAY, 1, @FechaFinMesAnterior);
+        DECLARE @CantidadSemanas INT = ((DATEDIFF(DAY, @FechaInicioMes, @FechaFinMes) + 1) / 7);
+        DECLARE @IdMesPlanilla INT;
+        DECLARE @LogJson NVARCHAR(MAX);
+
+        IF NOT EXISTS (SELECT 1 FROM dbo.MesPlanilla WHERE FechaInicio = @FechaInicioMes AND FechaFin = @FechaFinMes)
+        BEGIN
+            INSERT dbo.MesPlanilla (FechaInicio, FechaFin, CantidadSemanas)
+            VALUES (@FechaInicioMes, @FechaFinMes, @CantidadSemanas);
+            SET @LogJson = CONCAT('{"FechaInicio":"', CONVERT(VARCHAR(10), @FechaInicioMes, 120), '","FechaFin":"', CONVERT(VARCHAR(10), @FechaFinMes, 120), '"}');
+            EXEC dbo.sp_RegistrarEvento NULL, 'SIMULACION', 'Apertura mensual', @LogJson, NULL, NULL, 'OK';
+        END;
+
+        SELECT @IdMesPlanilla = Id FROM dbo.MesPlanilla WHERE FechaInicio = @FechaInicioMes AND FechaFin = @FechaFinMes;
+
+        INSERT dbo.PlanillaMesXEmpleado (IdMesPlanilla, IdEmpleado)
+        SELECT @IdMesPlanilla, E.Id
+        FROM dbo.Empleado E
+        WHERE E.FechaContratacion <= @FechaFinMes
+          AND (E.FechaSalida IS NULL OR E.FechaSalida >= @FechaInicioMes)
+          AND NOT EXISTS (SELECT 1 FROM dbo.PlanillaMesXEmpleado PME WHERE PME.IdMesPlanilla = @IdMesPlanilla AND PME.IdEmpleado = E.Id);
+
+        SET @outResultCode = 0;
+    END TRY
+    BEGIN CATCH
+        SET @outResultCode = 50008;
+        THROW;
+    END CATCH
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_AbrirSemanaSiNoExiste
+    @inFechaInicioSemana DATE,
+    @outIdSemanaPlanilla INT OUTPUT,
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        DECLARE @tmpCode INT;
+        DECLARE @FechaFinSemana DATE = DATEADD(DAY, 6, @inFechaInicioSemana);
+        DECLARE @IdMesPlanilla INT;
+        DECLARE @LogJson NVARCHAR(MAX);
+
+        EXEC dbo.sp_AbrirMesSiNoExistePorSemana @inFechaInicioSemana, @tmpCode OUTPUT;
+        IF @tmpCode <> 0
+        BEGIN
+            SET @outResultCode = @tmpCode;
+            RETURN;
+        END;
+
+        SELECT @IdMesPlanilla = MP.Id
+        FROM dbo.MesPlanilla MP
+        WHERE @FechaFinSemana BETWEEN MP.FechaInicio AND MP.FechaFin;
+
+        IF NOT EXISTS (SELECT 1 FROM dbo.SemanaPlanilla WHERE FechaInicio = @inFechaInicioSemana)
+        BEGIN
+            INSERT dbo.SemanaPlanilla (IdMesPlanilla, FechaInicio, FechaFin)
+            VALUES (@IdMesPlanilla, @inFechaInicioSemana, @FechaFinSemana);
+            SET @LogJson = CONCAT('{"FechaInicio":"', CONVERT(VARCHAR(10), @inFechaInicioSemana, 120), '","FechaFin":"', CONVERT(VARCHAR(10), @FechaFinSemana, 120), '"}');
+            EXEC dbo.sp_RegistrarEvento NULL, 'SIMULACION', 'Apertura semanal', @LogJson, NULL, NULL, 'OK';
+        END;
+
+        SELECT @outIdSemanaPlanilla = Id FROM dbo.SemanaPlanilla WHERE FechaInicio = @inFechaInicioSemana;
+
+        INSERT dbo.PlanillaSemXEmpleado (IdSemanaPlanilla, IdEmpleado)
+        SELECT @outIdSemanaPlanilla, E.Id
+        FROM dbo.Empleado E
+        WHERE E.FechaContratacion <= @FechaFinSemana
+          AND (E.FechaSalida IS NULL OR E.FechaSalida >= @inFechaInicioSemana)
+          AND NOT EXISTS (SELECT 1 FROM dbo.PlanillaSemXEmpleado PSE WHERE PSE.IdSemanaPlanilla = @outIdSemanaPlanilla AND PSE.IdEmpleado = E.Id);
+
+        SET @outResultCode = 0;
+    END TRY
+    BEGIN CATCH
+        SET @outResultCode = 50008;
+        THROW;
+    END CATCH
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_InsertarEmpleado
+    @inValorDocumentoIdentidad VARCHAR(32),
+    @inNombre VARCHAR(128),
+    @inIdPuesto INT,
+    @inCuentaBancaria VARCHAR(40),
+    @inUsername VARCHAR(64),
+    @inPassword VARCHAR(128),
+    @inIdTipoUsuario INT,
+    @inFechaContratacion DATE,
+    @inIdPostByUser INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @outIdEmpleado INT OUTPUT,
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @LogJson NVARCHAR(MAX), @Despues NVARCHAR(MAX);
+    SET @outIdEmpleado = NULL;
+    IF EXISTS (SELECT 1 FROM dbo.Empleado WHERE ValorDocumentoIdentidad = @inValorDocumentoIdentidad)
+    BEGIN SET @outResultCode = 50004; RETURN; END;
+    IF NOT EXISTS (SELECT 1 FROM dbo.Puesto WHERE Id = @inIdPuesto)
+    BEGIN SET @outResultCode = 50006; RETURN; END;
+    IF NOT EXISTS (SELECT 1 FROM dbo.TipoUsuario WHERE Id = @inIdTipoUsuario)
+    BEGIN SET @outResultCode = 50012; RETURN; END;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        INSERT dbo.Empleado (ValorDocumentoIdentidad, Nombre, IdPuesto, CuentaBancaria, FechaContratacion)
+        VALUES (@inValorDocumentoIdentidad, @inNombre, @inIdPuesto, @inCuentaBancaria, @inFechaContratacion);
+        SET @outIdEmpleado = SCOPE_IDENTITY();
+
+        INSERT dbo.Usuario (Username, Password, IdTipoUsuario, IdEmpleado, Activo)
+        VALUES (@inUsername, @inPassword, @inIdTipoUsuario, CASE WHEN @inIdTipoUsuario = 0 THEN @outIdEmpleado ELSE NULL END, 1);
+
+        SET @LogJson = CONCAT('{"Documento":"', @inValorDocumentoIdentidad, '","Nombre":"', @inNombre, '"}');
+        SELECT @Despues = (SELECT E.Id, E.ValorDocumentoIdentidad, E.Nombre, E.IdPuesto, E.CuentaBancaria, E.FechaContratacion FROM dbo.Empleado E WHERE E.Id = @outIdEmpleado FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+        EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Insertar empleado', @LogJson, NULL, @Despues, 'OK';
+        COMMIT TRANSACTION;
+        SET @outResultCode = 0;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        SET @outResultCode = 50008;
+        THROW;
+    END CATCH
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_InsertarEmpleadoSim
+    @inValorDocumentoIdentidad VARCHAR(32),
+    @inNombre VARCHAR(128),
+    @inPuesto VARCHAR(80),
+    @inCuentaBancaria VARCHAR(40),
+    @inUsername VARCHAR(64),
+    @inPassword VARCHAR(128),
+    @inTipoUsuario INT,
+    @inFechaContratacion DATE,
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @IdPuesto INT, @IdEmpleado INT;
+    SELECT @IdPuesto = Id FROM dbo.Puesto WHERE Nombre = @inPuesto;
+    IF @IdPuesto IS NULL BEGIN SET @outResultCode = 50006; RETURN; END;
+    EXEC dbo.sp_InsertarEmpleado @inValorDocumentoIdentidad, @inNombre, @IdPuesto, @inCuentaBancaria, @inUsername, @inPassword, @inTipoUsuario, @inFechaContratacion, NULL, 'SIMULACION', @IdEmpleado OUTPUT, @outResultCode OUTPUT;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_EliminarEmpleado
+    @inValorDocumentoIdentidad VARCHAR(32) = NULL,
+    @inIdEmpleado INT = NULL,
+    @inFechaSalida DATE = NULL,
+    @inIdPostByUser INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @Antes NVARCHAR(MAX), @Despues NVARCHAR(MAX), @LogJson NVARCHAR(MAX);
+    IF @inIdEmpleado IS NULL
+        SELECT @inIdEmpleado = Id FROM dbo.Empleado WHERE ValorDocumentoIdentidad = @inValorDocumentoIdentidad;
+    IF @inIdEmpleado IS NULL BEGIN SET @outResultCode = 50007; RETURN; END;
+
+    SELECT @Antes = (SELECT * FROM dbo.Empleado WHERE Id = @inIdEmpleado FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        UPDATE dbo.Empleado SET Activo = 0, FechaSalida = ISNULL(@inFechaSalida, CAST(SYSDATETIME() AS DATE)) WHERE Id = @inIdEmpleado;
+        UPDATE dbo.Usuario SET Activo = 0 WHERE IdEmpleado = @inIdEmpleado;
+        SET @LogJson = CONCAT('{"IdEmpleado":', @inIdEmpleado, '}');
+        SELECT @Despues = (SELECT * FROM dbo.Empleado WHERE Id = @inIdEmpleado FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+        EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Eliminar empleado', @LogJson, @Antes, @Despues, 'OK';
+        COMMIT TRANSACTION;
+        SET @outResultCode = 0;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        SET @outResultCode = 50008;
+        THROW;
+    END CATCH
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ActualizarEmpleado
+    @inIdEmpleado INT,
+    @inValorDocumentoIdentidad VARCHAR(32),
+    @inNombre VARCHAR(128),
+    @inIdPuesto INT,
+    @inCuentaBancaria VARCHAR(40),
+    @inIdPostByUser INT,
+    @inPostInIP VARCHAR(64),
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @Antes NVARCHAR(MAX), @Despues NVARCHAR(MAX), @LogJson NVARCHAR(MAX);
+    IF NOT EXISTS (SELECT 1 FROM dbo.Empleado WHERE Id = @inIdEmpleado) BEGIN SET @outResultCode = 50007; RETURN; END;
+    IF NOT EXISTS (SELECT 1 FROM dbo.Puesto WHERE Id = @inIdPuesto) BEGIN SET @outResultCode = 50006; RETURN; END;
+    IF EXISTS (SELECT 1 FROM dbo.Empleado WHERE ValorDocumentoIdentidad = @inValorDocumentoIdentidad AND Id <> @inIdEmpleado) BEGIN SET @outResultCode = 50004; RETURN; END;
+
+    SELECT @Antes = (SELECT * FROM dbo.Empleado WHERE Id = @inIdEmpleado FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        UPDATE dbo.Empleado
+        SET ValorDocumentoIdentidad = @inValorDocumentoIdentidad, Nombre = @inNombre, IdPuesto = @inIdPuesto, CuentaBancaria = @inCuentaBancaria
+        WHERE Id = @inIdEmpleado;
+        SET @LogJson = CONCAT('{"IdEmpleado":', @inIdEmpleado, '}');
+        SELECT @Despues = (SELECT * FROM dbo.Empleado WHERE Id = @inIdEmpleado FOR JSON PATH, WITHOUT_ARRAY_WRAPPER);
+        EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Editar empleado', @LogJson, @Antes, @Despues, 'OK';
+        COMMIT TRANSACTION;
+        SET @outResultCode = 0;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        SET @outResultCode = 50008;
+        THROW;
+    END CATCH
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ListarPuestos
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT P.Id,
+           P.Nombre,
+           P.SalarioXHora,
+           MAX(CASE WHEN TJ.Nombre = 'Diurno' THEN PJS.SalarioXHora END) AS SalarioDiurno,
+           MAX(CASE WHEN TJ.Nombre = 'Vespertino' THEN PJS.SalarioXHora END) AS SalarioVespertino,
+           MAX(CASE WHEN TJ.Nombre = 'Nocturno' THEN PJS.SalarioXHora END) AS SalarioNocturno
+    FROM dbo.Puesto P
+    LEFT JOIN dbo.PuestoJornadaSalario PJS ON PJS.IdPuesto = P.Id
+    LEFT JOIN dbo.TipoJornada TJ ON TJ.Id = PJS.IdTipoJornada
+    GROUP BY P.Id, P.Nombre, P.SalarioXHora
+    ORDER BY P.Nombre;
+    SET @outResultCode = 0;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ListarEmpleados
+    @inFiltro VARCHAR(128) = '',
+    @inIdPostByUser INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @NombreEvento VARCHAR(100), @LogJson NVARCHAR(MAX);
+    SET @inFiltro = ISNULL(@inFiltro, '');
+    SELECT E.Id, E.ValorDocumentoIdentidad, E.Nombre, P.Nombre AS Puesto, E.CuentaBancaria, E.FechaContratacion, E.Activo
+    FROM dbo.Empleado E
+    INNER JOIN dbo.Puesto P ON P.Id = E.IdPuesto
+    WHERE E.Activo = 1
+      AND (@inFiltro = '' OR E.Nombre LIKE '%' + @inFiltro + '%' OR E.ValorDocumentoIdentidad LIKE '%' + @inFiltro + '%')
+    ORDER BY E.Nombre;
+    SET @NombreEvento = CASE WHEN @inFiltro = '' THEN 'Listar empleados' ELSE 'Listar empleados con filtro' END;
+    SET @LogJson = CASE WHEN @inFiltro = '' THEN NULL ELSE CONCAT('{"Filtro":"', @inFiltro, '"}') END;
+    EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, @NombreEvento, @LogJson, NULL, NULL, 'OK';
+    SET @outResultCode = 0;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ObtenerEmpleado
+    @inIdEmpleado INT,
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT E.Id, E.ValorDocumentoIdentidad, E.Nombre, E.IdPuesto, P.Nombre AS Puesto, E.CuentaBancaria, E.FechaContratacion, E.FechaSalida, E.Activo,
+           U.Username
+    FROM dbo.Empleado E
+    INNER JOIN dbo.Puesto P ON P.Id = E.IdPuesto
+    LEFT JOIN dbo.Usuario U ON U.IdEmpleado = E.Id
+    WHERE E.Id = @inIdEmpleado;
+    SET @outResultCode = CASE WHEN @@ROWCOUNT = 0 THEN 50007 ELSE 0 END;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ImpersonarEmpleado
+    @inIdEmpleado INT,
+    @inIdPostByUser INT,
+    @inPostInIP VARCHAR(64),
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogJson NVARCHAR(MAX);
+    IF NOT EXISTS (SELECT 1 FROM dbo.Empleado WHERE Id = @inIdEmpleado AND Activo = 1) BEGIN SET @outResultCode = 50007; RETURN; END;
+    SET @LogJson = CONCAT('{"IdEmpleado":', @inIdEmpleado, '}');
+    EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Impersonar empleado', @LogJson, NULL, NULL, 'OK';
+    SELECT E.Id AS IdEmpleado, E.Nombre, U.Username
+    FROM dbo.Empleado E LEFT JOIN dbo.Usuario U ON U.IdEmpleado = E.Id
+    WHERE E.Id = @inIdEmpleado;
+    SET @outResultCode = 0;
+END;
+GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_RegresarAdmin
+    @inIdPostByUser INT,
+    @inPostInIP VARCHAR(64),
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Regresar a interfaz de administrador', NULL, NULL, NULL, 'OK';
+    SET @outResultCode = 0;
+END;
+GO
