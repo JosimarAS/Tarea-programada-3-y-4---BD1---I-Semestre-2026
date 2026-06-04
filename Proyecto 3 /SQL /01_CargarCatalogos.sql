@@ -1,0 +1,75 @@
+USE PlanillaObreraDB;
+GO
+DECLARE @xml XML = N'<Catalogo>
+    <TiposUsuario>
+        <TipoUsuario Id="0" Nombre="Empleado" />
+        <TipoUsuario Id="1" Nombre="Administrador" />
+    </TiposUsuario>
+    <TiposDeJornada>
+        <TipoDeJornada Id="1" Nombre="Diurno" HoraInicio="06:00" HoraFin="14:00" />
+        <TipoDeJornada Id="2" Nombre="Vespertino" HoraInicio="14:00" HoraFin="22:00" />
+        <TipoDeJornada Id="3" Nombre="Nocturno" HoraInicio="22:00" HoraFin="06:00" />
+    </TiposDeJornada>
+    <Puestos>
+        <Puesto Nombre="Electricista" SalarioXHora="1200.00" SalarioDiurno="1200.00" SalarioVespertino="1320.00" SalarioNocturno="1440.00" />
+        <Puesto Nombre="Cajero" SalarioXHora="1050.00" SalarioDiurno="1050.00" SalarioVespertino="1155.00" SalarioNocturno="1260.00" />
+        <Puesto Nombre="Conductor" SalarioXHora="1150.00" SalarioDiurno="1150.00" SalarioVespertino="1265.00" SalarioNocturno="1380.00" />
+        <Puesto Nombre="Recepcionista" SalarioXHora="1100.00" SalarioDiurno="1100.00" SalarioVespertino="1210.00" SalarioNocturno="1320.00" />
+        <Puesto Nombre="Fontanero" SalarioXHora="1250.00" SalarioDiurno="1250.00" SalarioVespertino="1375.00" SalarioNocturno="1500.00" />
+        <Puesto Nombre="Asistente" SalarioXHora="1000.00" SalarioDiurno="1000.00" SalarioVespertino="1100.00" SalarioNocturno="1200.00" />
+    </Puestos>
+    <Feriados>
+        <Feriado Id="1" Nombre="Jueves Santo" Fecha="2026-04-02" />
+        <Feriado Id="2" Nombre="Viernes Santo" Fecha="2026-04-03" />
+        <Feriado Id="3" Nombre="Dia de Juan Santamaria" Fecha="2026-04-11" />
+        <Feriado Id="4" Nombre="Dia del Trabajo" Fecha="2026-05-01" />
+        <Feriado Id="5" Nombre="Anexion del Partido de Nicoya" Fecha="2026-07-25" />
+    </Feriados>
+    <TiposDeMovimiento>
+        <TipoDeMovimiento Id="1" Nombre="Credito Horas Ordinarias" Accion="+" />
+        <TipoDeMovimiento Id="2" Nombre="Credito Horas Extra Normales" Accion="+" />
+        <TipoDeMovimiento Id="3" Nombre="Credito Horas Extra Dobles" Accion="+" />
+        <TipoDeMovimiento Id="4" Nombre="Deducciones de ley" Accion="-" />
+        <TipoDeMovimiento Id="5" Nombre="Deducciones Asociacion Solidarista" Accion="-" />
+        <TipoDeMovimiento Id="6" Nombre="Deduccion Ahorro Vacacional" Accion="-" />
+        <TipoDeMovimiento Id="7" Nombre="Pension Alimenticia" Accion="-" />
+        <TipoDeMovimiento Id="8" Nombre="Embargo judicial" Accion="-" />
+    </TiposDeMovimiento>
+    <TiposDeDeduccion>
+        <TipoDeDeduccion Id="1" Nombre="Deducciones de ley" Obligatorio="Si" Porcentual="Si" Valor="0.1067" IdTipoMov="4" />
+        <TipoDeDeduccion Id="2" Nombre="Ahorro Asociacion Solidarista" Obligatorio="No" Porcentual="Si" Valor="0.05" IdTipoMov="5" />
+        <TipoDeDeduccion Id="3" Nombre="Ahorro Vacacional" Obligatorio="No" Porcentual="No" Valor="0.00" IdTipoMov="6" />
+        <TipoDeDeduccion Id="4" Nombre="Pension Alimenticia" Obligatorio="No" Porcentual="No" Valor="0.00" IdTipoMov="7" />
+        <TipoDeDeduccion Id="5" Nombre="Embargo judicial" Obligatorio="No" Porcentual="No" Valor="0.00" IdTipoMov="8" />
+    </TiposDeDeduccion>
+    <Usuarios>
+        <Usuario Username="admin" Password="1234" TipoUsuario="1" />
+        <Usuario Username="Goku" Password="1234" TipoUsuario="1" />
+    </Usuarios>
+    <TiposDeEvento>
+        <TipoEvento Id="1" Nombre="Login" />
+        <TipoEvento Id="2" Nombre="Logout" />
+        <TipoEvento Id="3" Nombre="Listar empleados" />
+        <TipoEvento Id="4" Nombre="Listar empleados con filtro" />
+        <TipoEvento Id="5" Nombre="Insertar empleado" />
+        <TipoEvento Id="6" Nombre="Eliminar empleado" />
+        <TipoEvento Id="7" Nombre="Asociar deduccion" />
+        <TipoEvento Id="8" Nombre="Desasociar deduccion" />
+        <TipoEvento Id="9" Nombre="Consultar planilla semanal" />
+        <TipoEvento Id="10" Nombre="Consultar planilla mensual" />
+        <TipoEvento Id="11" Nombre="Editar empleado" />
+        <TipoEvento Id="12" Nombre="Impersonar empleado" />
+        <TipoEvento Id="13" Nombre="Regresar a interfaz de administrador" />
+        <TipoEvento Id="14" Nombre="Ingreso de marcas de asistencia" />
+        <TipoEvento Id="15" Nombre="Ingreso nuevas jornadas" />
+        <TipoEvento Id="16" Nombre="Cierre semanal" />
+        <TipoEvento Id="17" Nombre="Apertura semanal" />
+        <TipoEvento Id="18" Nombre="Apertura mensual" />
+        <TipoEvento Id="19" Nombre="Cierre mensual" />
+    </TiposDeEvento>
+</Catalogo>
+';
+DECLARE @codigo INT;
+EXEC dbo.sp_CargarCatalogos @inXml = @xml, @outResultCode = @codigo OUTPUT;
+SELECT @codigo AS CodigoResultadoCatalogos;
+GO
