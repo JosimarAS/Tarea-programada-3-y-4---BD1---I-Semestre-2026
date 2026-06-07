@@ -1357,3 +1357,159 @@ BEGIN
     END CATCH
 END;
 GO
+
+CREATE OR ALTER PROCEDURE dbo.sp_ConsultarPlanillasSemanales
+    @inIdEmpleado INT,
+    @inTop INT = 8,
+    @inIdPostByUser INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogJson NVARCHAR(MAX), @FechaInicio DATE, @FechaFin DATE;
+    SELECT @FechaInicio = MIN(SP.FechaInicio), @FechaFin = MAX(SP.FechaFin)
+    FROM dbo.PlanillaSemXEmpleado PSE
+    INNER JOIN dbo.SemanaPlanilla SP ON SP.Id = PSE.IdSemanaPlanilla
+    WHERE PSE.IdEmpleado = @inIdEmpleado AND (PSE.SalarioBruto > 0 OR PSE.Cerrada = 1);
+
+    SELECT TOP (@inTop) PSE.Id AS IdPlanillaSemanal, SP.FechaInicio, SP.FechaFin, PSE.SalarioBruto, PSE.TotalDeducciones, PSE.SalarioNeto, PSE.HorasOrdinarias, PSE.HorasExtraNormales, PSE.HorasExtraDobles
+    FROM dbo.PlanillaSemXEmpleado PSE
+    INNER JOIN dbo.SemanaPlanilla SP ON SP.Id = PSE.IdSemanaPlanilla
+    WHERE PSE.IdEmpleado = @inIdEmpleado AND (PSE.SalarioBruto > 0 OR PSE.Cerrada = 1)
+    ORDER BY SP.FechaInicio DESC;
+
+    SET @LogJson = CONCAT('{"IdEmpleado":', @inIdEmpleado, ',"FechaInicio":"', ISNULL(CONVERT(VARCHAR(10), @FechaInicio, 120), ''), '","FechaFin":"', ISNULL(CONVERT(VARCHAR(10), @FechaFin, 120), ''), '"}');
+    EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Consultar planilla semanal', @LogJson, NULL, NULL, 'OK';
+    SET @outResultCode = 0;
+END;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_ConsultarDetalleDeduccionesSemana
+    @inIdPlanillaSemanal INT,
+    @inIdPostByUser INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogJson NVARCHAR(MAX), @IdEmpleado INT, @FechaInicio DATE, @FechaFin DATE;
+    SELECT @IdEmpleado = PSE.IdEmpleado, @FechaInicio = SP.FechaInicio, @FechaFin = SP.FechaFin
+    FROM dbo.PlanillaSemXEmpleado PSE INNER JOIN dbo.SemanaPlanilla SP ON SP.Id = PSE.IdSemanaPlanilla
+    WHERE PSE.Id = @inIdPlanillaSemanal;
+
+    SELECT TD.Nombre AS Deduccion,
+           COALESCE(ED.Porcentaje, TD.Valor) AS Porcentaje,
+           MP.Monto
+    FROM dbo.PlanillaSemXEmpleado PSE
+    INNER JOIN dbo.MovimientoPlanilla MP ON MP.IdSemanaPlanilla = PSE.IdSemanaPlanilla AND MP.IdEmpleado = PSE.IdEmpleado
+    INNER JOIN dbo.TipoDeduccion TD ON TD.Id = MP.IdTipoDeduccion
+    LEFT JOIN dbo.EmpleadoDeduccion ED ON ED.IdEmpleado = PSE.IdEmpleado
+                                      AND ED.IdTipoDeduccion = TD.Id
+                                      AND ED.FechaInicio <= MP.FechaMovimiento
+                                      AND (ED.FechaFin IS NULL OR ED.FechaFin >= MP.FechaMovimiento)
+    WHERE PSE.Id = @inIdPlanillaSemanal AND MP.IdTipoDeduccion IS NOT NULL
+    ORDER BY TD.Nombre;
+
+    SET @LogJson = CONCAT('{"IdEmpleado":', ISNULL(@IdEmpleado, 0), ',"IdPlanillaSemanal":', @inIdPlanillaSemanal, ',"FechaInicio":"', ISNULL(CONVERT(VARCHAR(10), @FechaInicio, 120), ''), '","FechaFin":"', ISNULL(CONVERT(VARCHAR(10), @FechaFin, 120), ''), '","Detalle":"Deducciones"}');
+    EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Consultar planilla semanal', @LogJson, NULL, NULL, 'OK';
+    SET @outResultCode = 0;
+END;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_ConsultarDetalleHorasSemana
+    @inIdPlanillaSemanal INT,
+    @inIdPostByUser INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogJson NVARCHAR(MAX), @IdEmpleado INT, @FechaInicio DATE, @FechaFin DATE;
+    SELECT @IdEmpleado = PSE.IdEmpleado, @FechaInicio = SP.FechaInicio, @FechaFin = SP.FechaFin
+    FROM dbo.PlanillaSemXEmpleado PSE INNER JOIN dbo.SemanaPlanilla SP ON SP.Id = PSE.IdSemanaPlanilla
+    WHERE PSE.Id = @inIdPlanillaSemanal;
+
+    SELECT A.FechaOperacion, A.HoraEntrada, A.HoraSalida,
+           SUM(CASE WHEN MP.IdTipoMovimiento = 1 THEN ISNULL(MP.CantidadHoras,0) ELSE 0 END) HorasOrdinarias,
+           SUM(CASE WHEN MP.IdTipoMovimiento = 1 THEN MP.Monto ELSE 0 END) MontoOrdinario,
+           SUM(CASE WHEN MP.IdTipoMovimiento = 2 THEN ISNULL(MP.CantidadHoras,0) ELSE 0 END) HorasExtraNormales,
+           SUM(CASE WHEN MP.IdTipoMovimiento = 2 THEN MP.Monto ELSE 0 END) MontoExtraNormal,
+           SUM(CASE WHEN MP.IdTipoMovimiento = 3 THEN ISNULL(MP.CantidadHoras,0) ELSE 0 END) HorasExtraDobles,
+           SUM(CASE WHEN MP.IdTipoMovimiento = 3 THEN MP.Monto ELSE 0 END) MontoExtraDoble
+    FROM dbo.PlanillaSemXEmpleado PSE
+    INNER JOIN dbo.Asistencia A ON A.IdSemanaPlanilla = PSE.IdSemanaPlanilla AND A.IdEmpleado = PSE.IdEmpleado
+    LEFT JOIN dbo.MovimientoPlanilla MP ON MP.IdAsistencia = A.Id
+    WHERE PSE.Id = @inIdPlanillaSemanal
+    GROUP BY A.FechaOperacion, A.HoraEntrada, A.HoraSalida
+    ORDER BY A.HoraEntrada;
+
+    SET @LogJson = CONCAT('{"IdEmpleado":', ISNULL(@IdEmpleado, 0), ',"IdPlanillaSemanal":', @inIdPlanillaSemanal, ',"FechaInicio":"', ISNULL(CONVERT(VARCHAR(10), @FechaInicio, 120), ''), '","FechaFin":"', ISNULL(CONVERT(VARCHAR(10), @FechaFin, 120), ''), '","Detalle":"Horas"}');
+    EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Consultar planilla semanal', @LogJson, NULL, NULL, 'OK';
+    SET @outResultCode = 0;
+END;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_ConsultarPlanillasMensuales
+    @inIdEmpleado INT,
+    @inTop INT = 6,
+    @inIdPostByUser INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogJson NVARCHAR(MAX), @FechaInicio DATE, @FechaFin DATE;
+    SELECT @FechaInicio = MIN(MP.FechaInicio), @FechaFin = MAX(MP.FechaFin)
+    FROM dbo.PlanillaMesXEmpleado PME
+    INNER JOIN dbo.MesPlanilla MP ON MP.Id = PME.IdMesPlanilla
+    WHERE PME.IdEmpleado = @inIdEmpleado AND (PME.SalarioBruto > 0 OR PME.TotalDeducciones > 0);
+
+    SELECT TOP (@inTop) PME.Id AS IdPlanillaMensual, MP.FechaInicio, MP.FechaFin, PME.SalarioBruto, PME.TotalDeducciones, PME.SalarioNeto
+    FROM dbo.PlanillaMesXEmpleado PME
+    INNER JOIN dbo.MesPlanilla MP ON MP.Id = PME.IdMesPlanilla
+    WHERE PME.IdEmpleado = @inIdEmpleado AND (PME.SalarioBruto > 0 OR PME.TotalDeducciones > 0)
+    ORDER BY MP.FechaInicio DESC;
+
+    SET @LogJson = CONCAT('{"IdEmpleado":', @inIdEmpleado, ',"FechaInicio":"', ISNULL(CONVERT(VARCHAR(10), @FechaInicio, 120), ''), '","FechaFin":"', ISNULL(CONVERT(VARCHAR(10), @FechaFin, 120), ''), '"}');
+    EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Consultar planilla mensual', @LogJson, NULL, NULL, 'OK';
+    SET @outResultCode = 0;
+END;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_ConsultarDetalleDeduccionesMes
+    @inIdPlanillaMensual INT,
+    @inIdPostByUser INT = NULL,
+    @inPostInIP VARCHAR(64) = '127.0.0.1',
+    @outResultCode INT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @LogJson NVARCHAR(MAX), @IdEmpleado INT, @FechaInicio DATE, @FechaFin DATE;
+    SELECT @IdEmpleado = PME.IdEmpleado, @FechaInicio = MP.FechaInicio, @FechaFin = MP.FechaFin
+    FROM dbo.PlanillaMesXEmpleado PME INNER JOIN dbo.MesPlanilla MP ON MP.Id = PME.IdMesPlanilla
+    WHERE PME.Id = @inIdPlanillaMensual;
+
+    SELECT TD.Nombre AS Deduccion, DEM.PorcentajeAplicado AS Porcentaje, DEM.Monto
+    FROM dbo.PlanillaMesXEmpleado PME
+    INNER JOIN dbo.DeduccionXEmpleadoXMes DEM ON DEM.IdMesPlanilla = PME.IdMesPlanilla AND DEM.IdEmpleado = PME.IdEmpleado
+    INNER JOIN dbo.TipoDeduccion TD ON TD.Id = DEM.IdTipoDeduccion
+    WHERE PME.Id = @inIdPlanillaMensual
+    ORDER BY TD.Nombre;
+
+    SET @LogJson = CONCAT('{"IdEmpleado":', ISNULL(@IdEmpleado, 0), ',"IdPlanillaMensual":', @inIdPlanillaMensual, ',"FechaInicio":"', ISNULL(CONVERT(VARCHAR(10), @FechaInicio, 120), ''), '","FechaFin":"', ISNULL(CONVERT(VARCHAR(10), @FechaFin, 120), ''), '","Detalle":"Deducciones"}');
+    EXEC dbo.sp_RegistrarEvento @inIdPostByUser, @inPostInIP, 'Consultar planilla mensual', @LogJson, NULL, NULL, 'OK';
+    SET @outResultCode = 0;
+END;
+GO
+
+
+IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'developer_proyecto3')
+BEGIN
+    CREATE LOGIN developer_proyecto3 WITH PASSWORD = 'Proyecto3_2026!', CHECK_POLICY = OFF;
+END;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'developer_proyecto3')
+BEGIN
+    CREATE USER developer_proyecto3 FOR LOGIN developer_proyecto3;
+END;
+GO
+GRANT EXECUTE TO developer_proyecto3;
+GRANT SELECT ON SCHEMA::dbo TO developer_proyecto3;
+GO
