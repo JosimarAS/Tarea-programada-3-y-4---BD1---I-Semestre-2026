@@ -173,4 +173,61 @@ app.post('/api/admin/regresar', async (req, res) => {
   return replyByCode(res, r.output.outResultCode, { mensaje: 'Regreso registrado.' });
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Proyecto 3 fase 2 disponible en http://localhost:${PORT}`));
+app.get('/api/planilla/semanal/:idEmpleado', async (req, res) => {
+  const p = await getPool();
+  const r = await p.request()
+    .input('inIdEmpleado', sql.Int, Number(req.params.idEmpleado))
+    .input('inTop', sql.Int, Number(req.query.top || 8))
+    .input('inIdPostByUser', sql.Int, readUser(req))
+    .input('inPostInIP', sql.VarChar(64), ip(req))
+    .output('outResultCode', sql.Int)
+    .execute('dbo.sp_ConsultarPlanillasSemanales');
+  return replyByCode(res, r.output.outResultCode, { planillas: r.recordset || [] });
+});
+
+app.get('/api/planilla/semanal/deducciones/:idPlanilla', async (req, res) => {
+  const p = await getPool();
+  const r = await p.request()
+    .input('inIdPlanillaSemanal', sql.Int, Number(req.params.idPlanilla))
+    .input('inIdPostByUser', sql.Int, readUser(req))
+    .input('inPostInIP', sql.VarChar(64), ip(req))
+    .output('outResultCode', sql.Int)
+    .execute('dbo.sp_ConsultarDetalleDeduccionesSemana');
+  return replyByCode(res, r.output.outResultCode, { deducciones: r.recordset || [] });
+});
+
+app.get('/api/planilla/semanal/horas/:idPlanilla', async (req, res) => {
+  const p = await getPool();
+  const r = await p.request()
+    .input('inIdPlanillaSemanal', sql.Int, Number(req.params.idPlanilla))
+    .input('inIdPostByUser', sql.Int, readUser(req))
+    .input('inPostInIP', sql.VarChar(64), ip(req))
+    .output('outResultCode', sql.Int)
+    .execute('dbo.sp_ConsultarDetalleHorasSemana');
+  return replyByCode(res, r.output.outResultCode, { horas: r.recordset || [] });
+});
+
+app.get('/api/planilla/mensual/:idEmpleado', async (req, res) => {
+  const p = await getPool();
+  const r = await p.request()
+    .input('inIdEmpleado', sql.Int, Number(req.params.idEmpleado))
+    .input('inTop', sql.Int, Number(req.query.top || 6))
+    .input('inIdPostByUser', sql.Int, readUser(req))
+    .input('inPostInIP', sql.VarChar(64), ip(req))
+    .output('outResultCode', sql.Int)
+    .execute('dbo.sp_ConsultarPlanillasMensuales');
+  return replyByCode(res, r.output.outResultCode, { planillas: r.recordset || [] });
+});
+
+app.get('/api/planilla/mensual/deducciones/:idPlanilla', async (req, res) => {
+  const p = await getPool();
+  const r = await p.request()
+    .input('inIdPlanillaMensual', sql.Int, Number(req.params.idPlanilla))
+    .input('inIdPostByUser', sql.Int, readUser(req))
+    .input('inPostInIP', sql.VarChar(64), ip(req))
+    .output('outResultCode', sql.Int)
+    .execute('dbo.sp_ConsultarDetalleDeduccionesMes');
+  return replyByCode(res, r.output.outResultCode, { deducciones: r.recordset || [] });
+});
+
+app.listen(PORT, '0.0.0.0', () => console.log(`Proyecto 3 disponible en http://localhost:${PORT}`));
