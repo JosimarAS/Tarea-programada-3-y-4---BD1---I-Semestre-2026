@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Proyecto 3 - Planilla Obrera</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, sans-serif; color: #1f2937; background: #f3f4f6; }
+    body { margin: 0; }
+    header { background: #111827; color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+    main { padding: 1.5rem; max-width: 1180px; margin: auto; }
+    section { background: white; border-radius: 12px; padding: 1rem; box-shadow: 0 1px 8px #0001; margin-bottom: 1rem; }
+    input, select, button { padding: .55rem .7rem; border: 1px solid #d1d5db; border-radius: 8px; margin: .25rem; }
+    button { cursor: pointer; background: #1f2937; color: white; border: none; }
+    button.secondary { background: #4b5563; }
+    button.link { background: transparent; color: #2563eb; padding: 0; }
+    button.danger { background: #991b1b; }
+    table { width: 100%; border-collapse: collapse; margin-top: .7rem; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: .55rem; text-align: left; font-size: .92rem; }
+    th { background: #f9fafb; }
+    .hidden { display: none; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .5rem; }
+    .muted { color: #6b7280; font-size: .9rem; }
+    .badge { background: #e5e7eb; padding: .25rem .5rem; border-radius: 999px; }
+    .error { color: #991b1b; font-weight: 600; }
+  </style>
+</head>
+<body>
+<header>
+  <div><strong>Proyecto 3</strong> · Control de asistencia y planilla obrera</div>
+  <div><span id="sessionBadge" class="badge hidden"></span><button id="logoutBtn" class="secondary hidden">Logout</button></div>
+</header>
+<main>
+  <section id="loginView">
+    <h2>Login</h2>
+    <p class="muted">Usuarios de prueba: <strong>admin / 1234</strong> o cualquier empleado cargado desde el XML.</p>
+    <input id="username" placeholder="Usuario" autocomplete="username" />
+    <input id="password" placeholder="Contraseña" type="password" autocomplete="current-password" />
+    <button onclick="login()">Ingresar</button>
+    <p id="loginError" class="error"></p>
+  </section>
+
+  <section id="adminView" class="hidden">
+    <h2>Administrador · Empleados</h2>
+    <p class="muted">R01 y R02: listado inicial y filtro por nombre/documento. R03: impersonar empleado.</p>
+    <input id="filtro" placeholder="Filtro por nombre o documento" />
+    <button onclick="cargarEmpleados()">Filtrar</button>
+    <button class="secondary" onclick="limpiarFiltro()">Limpiar</button>
+    <button onclick="nuevoEmpleado()">Insertar empleado</button>
+    <div id="empleadosTabla"></div>
+  </section>
+
+  <section id="editorView" class="hidden">
+    <h2 id="editorTitle">Empleado</h2>
+    <div class="grid">
+      <input id="empDocumento" placeholder="Documento" />
+      <input id="empNombre" placeholder="Nombre" />
+      <select id="empPuesto"></select>
+      <input id="empCuenta" placeholder="Cuenta bancaria" />
+      <input id="empFecha" type="date" />
+      <input id="empUsername" placeholder="Username" />
+      <input id="empPassword" placeholder="Password" />
+    </div>
+    <button onclick="guardarEmpleado()">Guardar</button>
+    <button class="secondary" onclick="volverAdmin()">Regresar</button>
+  </section>
+
+  <section id="empleadoView" class="hidden">
+    <h2>Portal de empleado <span id="empleadoNombre" class="badge"></span></h2>
+    <button id="regresarAdminBtn" class="secondary hidden" onclick="regresarAdmin()">Regresar a interfaz de administrador</button>
+    <h3>R04 · Planillas semanales</h3>
+    <div id="planillasSemanales"></div>
+    <h3>R05 · Planillas mensuales</h3>
+    <div id="planillasMensuales"></div>
+  </section>
+
+  <section id="detalleView" class="hidden">
+    <h2 id="detalleTitulo">Detalle</h2>
+    <div id="detalleContenido"></div>
+    <button class="secondary" onclick="cerrarDetalle()">Cerrar detalle</button>
+  </section>
+</main>
+<script>
+const state = { usuario: JSON.parse(sessionStorage.getItem('usuario') || 'null'), empleadoActual: null, empleadoEditando: null, impersonando: false };
+const money = v => new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC' }).format(Number(v || 0));
+const api = async (url, options = {}) => {
+  const body = options.body ? JSON.stringify({ ...options.body, idUsuario: state.usuario?.idUsuario }) : undefined;
+  const r = await fetch(url + (url.includes('?') ? '&' : '?') + 'idUsuario=' + encodeURIComponent(state.usuario?.idUsuario || ''), { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers||{}) }, body });
+  const data = await r.json();
+  if (!data.ok) throw new Error(data.mensaje || 'Error');
+  return data;
+};
+function show(id) { for (const el of document.querySelectorAll('main > section')) el.classList.add('hidden'); document.getElementById(id).classList.remove('hidden'); }
+function setHeader() { const b = document.getElementById('sessionBadge'); const out = document.getElementById('logoutBtn'); if (state.usuario) { b.textContent = `${state.usuario.username} · ${state.usuario.tipoUsuario}`; b.classList.remove('hidden'); out.classList.remove('hidden'); } else { b.classList.add('hidden'); out.classList.add('hidden'); } }
+async function login() { try { const data = await api('/api/auth/login', { method: 'POST', body: { username: username.value, password: password.value } }); state.usuario = data.usuario; sessionStorage.setItem('usuario', JSON.stringify(state.usuario)); setHeader(); if (state.usuario.tipoUsuario === 'Administrador') { show('adminView'); await cargarEmpleados(); } else { state.empleadoActual = { IdEmpleado: state.usuario.idEmpleado, Nombre: state.usuario.username }; state.impersonando = false; await cargarPortalEmpleado(state.usuario.idEmpleado, state.usuario.username); } } catch(e) { loginError.textContent = e.message; } }
+async function logout() { if (state.usuario) await api('/api/auth/logout', { method: 'POST', body: {} }).catch(()=>{}); sessionStorage.clear(); location.reload(); }
+logoutBtn.onclick = logout;
+async function cargarPuestos(selected) { const data = await api('/api/puestos'); empPuesto.innerHTML = data.puestos.map(p => `<option value="${p.Id}" ${p.Id===selected?'selected':''}>${p.Nombre}</option>`).join(''); }
+async function cargarEmpleados() { const data = await api('/api/empleados?filtro=' + encodeURIComponent(filtro.value)); empleadosTabla.innerHTML = `<table><thead><tr><th>Documento</th><th>Nombre</th><th>Puesto</th><th>Acciones</th></tr></thead><tbody>${data.empleados.map(e => `<tr><td>${e.ValorDocumentoIdentidad}</td><td>${e.Nombre}</td><td>${e.Puesto}</td><td><button onclick="editarEmpleado(${e.Id})">Editar</button> <button onclick="impersonar(${e.Id})">Impersonar</button> <button class="danger" onclick="eliminarEmpleado(${e.Id})">Eliminar</button></td></tr>`).join('')}</tbody></table>`; }
+function limpiarFiltro(){ filtro.value=''; cargarEmpleados(); }
+async function nuevoEmpleado(){ state.empleadoEditando=null; editorTitle.textContent='Insertar empleado'; empDocumento.value=empNombre.value=empCuenta.value=empUsername.value=empPassword.value=''; empFecha.value=new Date().toISOString().slice(0,10); await cargarPuestos(); show('editorView'); }
+async function editarEmpleado(id){ const data = await api('/api/empleados/' + id); const e=data.empleado; state.empleadoEditando=e; editorTitle.textContent='Editar empleado'; empDocumento.value=e.ValorDocumentoIdentidad; empNombre.value=e.Nombre; empCuenta.value=e.CuentaBancaria; empFecha.value=(e.FechaContratacion||'').slice(0,10); empUsername.value=e.Username||''; empPassword.value=''; await cargarPuestos(e.IdPuesto); show('editorView'); }
+async function guardarEmpleado(){ const body={ valorDocumentoIdentidad:empDocumento.value, nombre:empNombre.value, idPuesto:Number(empPuesto.value), cuentaBancaria:empCuenta.value, fechaContratacion:empFecha.value, username:empUsername.value, password:empPassword.value||'1234' }; if(state.empleadoEditando){ await api('/api/empleados/'+state.empleadoEditando.Id,{method:'PUT',body}); } else { await api('/api/empleados',{method:'POST',body}); } show('adminView'); cargarEmpleados(); }
+async function eliminarEmpleado(id){ if(!confirm('¿Eliminar empleado?')) return; await api('/api/empleados/'+id,{method:'DELETE',body:{}}); cargarEmpleados(); }
+function volverAdmin(){ show('adminView'); cargarEmpleados(); }
+async function impersonar(id){ const data = await api('/api/empleados/'+id+'/impersonar',{method:'POST',body:{}}); state.impersonando=true; await cargarPortalEmpleado(data.empleado.IdEmpleado, data.empleado.Nombre); }
+async function regresarAdmin(){ await api('/api/admin/regresar',{method:'POST',body:{}}); state.impersonando=false; show('adminView'); cargarEmpleados(); }
+async function cargarPortalEmpleado(idEmpleado, nombre){ state.empleadoActual={IdEmpleado:idEmpleado,Nombre:nombre}; empleadoNombre.textContent=nombre; regresarAdminBtn.classList.toggle('hidden', !state.impersonando); show('empleadoView'); const sem=await api('/api/planilla/semanal/'+idEmpleado); planillasSemanales.innerHTML = `<table><thead><tr><th>Semana</th><th>Bruto</th><th>Deducciones</th><th>Neto</th><th>H. ord</th><th>H. extra</th><th>H. doble</th></tr></thead><tbody>${sem.planillas.map(p=>`<tr><td>${p.FechaInicio?.slice(0,10)} a ${p.FechaFin?.slice(0,10)}</td><td><button class="link" onclick="detalleHoras(${p.IdPlanillaSemanal})">${money(p.SalarioBruto)}</button></td><td><button class="link" onclick="detalleDeduccionesSemana(${p.IdPlanillaSemanal})">${money(p.TotalDeducciones)}</button></td><td>${money(p.SalarioNeto)}</td><td>${p.HorasOrdinarias}</td><td>${p.HorasExtraNormales}</td><td>${p.HorasExtraDobles}</td></tr>`).join('')}</tbody></table>`; const men=await api('/api/planilla/mensual/'+idEmpleado); planillasMensuales.innerHTML = `<table><thead><tr><th>Mes planilla</th><th>Bruto</th><th>Deducciones</th><th>Neto</th></tr></thead><tbody>${men.planillas.map(p=>`<tr><td>${p.FechaInicio?.slice(0,10)} a ${p.FechaFin?.slice(0,10)}</td><td>${money(p.SalarioBruto)}</td><td><button class="link" onclick="detalleDeduccionesMes(${p.IdPlanillaMensual})">${money(p.TotalDeducciones)}</button></td><td>${money(p.SalarioNeto)}</td></tr>`).join('')}</tbody></table>`; }
+async function detalleDeduccionesSemana(id){ const d=await api('/api/planilla/semanal/deducciones/'+id); detalleTitulo.textContent='Detalle de deducciones semanales'; detalleContenido.innerHTML=tabla(d.deducciones); detalleView.classList.remove('hidden'); }
+async function detalleHoras(id){ const d=await api('/api/planilla/semanal/horas/'+id); detalleTitulo.textContent='Detalle de horas trabajadas'; detalleContenido.innerHTML=tabla(d.horas); detalleView.classList.remove('hidden'); }
+async function detalleDeduccionesMes(id){ const d=await api('/api/planilla/mensual/deducciones/'+id); detalleTitulo.textContent='Detalle de deducciones mensuales'; detalleContenido.innerHTML=tabla(d.deducciones); detalleView.classList.remove('hidden'); }
+function tabla(rows){ if(!rows?.length) return '<p class="muted">No hay datos para mostrar.</p>'; const keys=Object.keys(rows[0]); return `<table><thead><tr>${keys.map(k=>`<th>${k}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${keys.map(k=>`<td>${r[k]??''}</td>`).join('')}</tr>`).join('')}</tbody></table>`; }
+function cerrarDetalle(){ detalleView.classList.add('hidden'); }
+setHeader(); if(state.usuario){ if(state.usuario.tipoUsuario==='Administrador'){ show('adminView'); cargarEmpleados(); } else cargarPortalEmpleado(state.usuario.idEmpleado,state.usuario.username); }
+</script>
+</body>
+</html>
